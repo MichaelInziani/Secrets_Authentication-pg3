@@ -57,12 +57,38 @@ app.get("/logout", (req, res) => {
   });
 });
 
-app.get("/secrets", (req, res) => {
+app.get("/secrets", async(req, res) => {
   console.log(req.user);
+
   if (req.isAuthenticated()) {
-    res.render("secrets.ejs");
+
+    try{
+      const result = await db.query(
+        `SELECT secret FROM users WHERE email=$1`,
+        [
+          req.user.email
+        ]);
+      console.log(result);
+      const secret = result.rows[0].secret;
+
+      if(secret){
+        res.render("secrets.ejs", {secret:secret});
+      }else{
+        res.render("secrets.ejs", {secret:"You should submit a secret"});
+      }
+    }catch(err){
+      console.log(err);
+    }
   } else {
     res.redirect("/login");
+  }
+});
+
+app.get("/submit", function(req, res){
+  if(req.isAuthenticated()){
+    res.render("submit.ejs");
+  }else{
+    res.redirect("/login")
   }
 });
 
@@ -71,6 +97,14 @@ app.get(
     passport.authenticate("google",{
       scope:["profile", "email"],
     })
+);
+
+app.get(
+  "/auth/google/secrets2",
+  passport.authenticate("google", {
+    successRedirect: "/secrets",
+    failureRedirect: "/login",
+  })
 );
 
 app.post(
@@ -110,6 +144,20 @@ app.post("/register", async (req, res) => {
       });
     }
   } catch (err) {
+    console.log(err);
+  }
+});
+
+app.post("/submit", async(req, res)=>{
+  const submittedSecret = req.body.secret;
+  console.log(req.user);
+  try{
+    await db.query(`UPDATE users SET secret=$1 WHERE email=$2`, [
+      submittedSecret,
+       req.user.email
+      ]);
+    res.redirect("/secrets");
+  }catch(err){
     console.log(err);
   }
 });
@@ -156,9 +204,24 @@ passport.use(
     callbackURL: "http://localhost:3000/auth/google/secrets2",
     userProfileIURL: "https://www.googleapis.com/oauth2/v3/userinfo",
   }, async(accessToken, refreshToken, profile, cb)=>{
-    console.log(profile);
+    try{
+      console.log(profile);
+      const result = await db.query("SELECT * FROM users WHERE email=$1", 
+        [profile.email,]
+      );
+      if(result.rows.length === 0){
+        const newUser = await db.query("INSERT INTO users(email, password) VALUES ($1, $2)",
+          [profile.email, "google"]
+        );
+        return cb(null, newUser.rows[0]);
+      }else{
+        return cb(null, result.rows[0]);
+      }
+    }catch(err){
+      console.log(err);
+    }
   }
-))
+));
 
 passport.serializeUser((user, cb) => {
   cb(null, user);

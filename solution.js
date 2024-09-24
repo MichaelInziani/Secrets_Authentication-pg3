@@ -13,13 +13,13 @@ const port = 3000;
 const saltRounds = 10;
 env.config();
 
-app.use(session({
-  secret: process.env.SESSION_SECRET,
-  resave: false,
-  saveUninitialized: true,
-  //cookie: { secure: true } //This should only be true for HTTPS
-}));
-
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET,
+    resave: false,
+    saveUninitialized: true,
+  })
+);
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static("public"));
 
@@ -56,9 +56,35 @@ app.get("/logout", (req, res) => {
   });
 });
 
-app.get("/secrets", (req, res) => {
+app.get("/secrets", async (req, res) => {
+  console.log(req.user);
+
+  ////////////////UPDATED GET SECRETS ROUTE/////////////////
   if (req.isAuthenticated()) {
-    res.render("secrets.ejs");
+    try {
+      const result = await db.query(
+        `SELECT secret FROM users WHERE email = $1`,
+        [req.user.email]
+      );
+      console.log(result);
+      const secret = result.rows[0].secret;
+      if (secret) {
+        res.render("secrets.ejs", { secret: secret });
+      } else {
+        res.render("secrets.ejs", { secret: "Jack Bauer is my hero." });
+      }
+    } catch (err) {
+      console.log(err);
+    }
+  } else {
+    res.redirect("/login");
+  }
+});
+
+////////////////SUBMIT GET ROUTE/////////////////
+app.get("/submit", function (req, res) {
+  if (req.isAuthenticated()) {
+    res.render("submit.ejs");
   } else {
     res.redirect("/login");
   }
@@ -120,6 +146,22 @@ app.post("/register", async (req, res) => {
   }
 });
 
+
+////////////////SUBMIT POST ROUTE/////////////////
+app.post("/submit", async function (req, res) {
+  const submittedSecret = req.body.secret;
+  console.log(req.user);
+  try {
+    await db.query(`UPDATE users SET secret = $1 WHERE email = $2`, [
+      submittedSecret,
+      req.user.email,
+    ]);
+    res.redirect("/secrets");
+  } catch (err) {
+    console.log(err);
+  }
+});
+
 passport.use(
   "local",
   new Strategy(async function verify(username, password, cb) {
@@ -156,13 +198,12 @@ passport.use(
   new GoogleStrategy(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: "http://localhost:3000/auth/google/secrets",
-      userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    callbackURL: "http://localhost:3000/auth/google/secrets2",
+    userProfileIURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     async (accessToken, refreshToken, profile, cb) => {
       try {
-        console.log(profile);
         const result = await db.query("SELECT * FROM users WHERE email = $1", [
           profile.email,
         ]);
